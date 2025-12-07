@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>학교 과제 레이싱</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #333;
+            overflow: hidden;
+            touch-action: none;
+            font-family: 'Arial', sans-serif;
+        }
+
+        /* 캔버스 (게임 화면) */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI 레이어 */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* 점수판 */
+        #score-board {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 30px;
+            color: #ffeb3b;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        /* 버튼들 (좌우) */
+        #controls {
+            pointer-events: auto;
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            width: 90px;
+            height: 90px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 3px solid white;
+            border-radius: 50%;
+            color: white;
+            font-size: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none; /* 텍스트 선택 방지 */
+        }
+        
+        .btn:active {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        /* 시작 화면 / 게임 오버 화면 */
+        #menu-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            z-index: 100;
+        }
+
+        h1 { color: #fff; font-size: 40px; margin: 0 0 20px 0; text-shadow: 0 0 10px blue; }
+        p { color: #ddd; font-size: 20px; margin: 0 0 40px 0; }
+
+        .start-btn {
+            padding: 15px 60px;
+            font-size: 24px;
+            background-color: #00d2ff;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 0 15px #00d2ff;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div id="score-board">점수: 0</div>
+        <div id="controls">
+            <div class="btn" id="btn-left">◀</div>
+            <div class="btn" id="btn-right">▶</div>
+        </div>
+    </div>
+
+    <div id="menu-screen">
+        <h1>자동차 레이싱</h1>
+        <p id="final-score">장애물을 피하고 별을 드세요!</p>
+        <button class="start-btn" onclick="startGame()">게임 시작</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 화면 크기
+        let screenW = window.innerWidth;
+        let screenH = window.innerHeight;
+        canvas.width = screenW;
+        canvas.height = screenH;
+
+        // 게임 변수
+        let isPlaying = false;
+        let score = 0;
+        let speed = 7;
+        let animationId;
+        let roadOffset = 0; // 도로 움직임 효과
+
+        // 플레이어 설정
+        let player = {
+            lane: 1, // 0:왼쪽, 1:가운데, 2:오른쪽
+            x: 0,
+            y: 0,
+            width: 60,
+            height: 100
+        };
+
+        // 장애물/아이템 목록
+        let objects = [];
+
+        // 차선 너비 계산
+        let laneWidth = screenW / 3;
+
+        // 화면 크기 변경 시 대응
+        window.addEventListener('resize', () => {
+            screenW = window.innerWidth;
+            screenH = window.innerHeight;
+            canvas.width = screenW;
+            canvas.height = screenH;
+            laneWidth = screenW / 3;
+            if(isPlaying) player.y = screenH - 180;
+        });
+
+        function startGame() {
+            document.getElementById('menu-screen').style.display = 'none';
+            isPlaying = true;
+            score = 0;
+            speed = 7;
+            objects = [];
+            player.lane = 1;
+            player.y = screenH - 180;
+            player.x = (laneWidth * 1) + (laneWidth / 2);
+            updateScore();
+            gameLoop();
+        }
+
+        function gameLoop() {
+            if (!isPlaying) return;
+
+            // 1. 배경(도로) 그리기
+            drawRoad();
+
+            // 2. 플레이어 위치 부드럽게 이동
+            let targetX = (player.lane * laneWidth) + (laneWidth / 2);
+            player.x += (targetX - player.x) * 0.2; // 부드러운 움직임 공식
+
+            // 3. 오브젝트 생성 및 관리
+            manageObjects();
+
+            // 4. 플레이어 그리기 (직접 그리는 함수 사용)
+            drawMyCar(player.x - player.width/2, player.y, player.width, player.height);
+
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        // --- 그리기 함수들 (이미지 파일 없이 코드로 그림) ---
+
+        function drawRoad() {
+            // 잔디
+            ctx.fillStyle = "#2ecc71";
+            ctx.fillRect(0, 0, screenW, screenH);
+            
+            // 도로
+            ctx.fillStyle = "#555";
+            ctx.fillRect(0, 0, screenW, screenH);
+
+            // 차선 애니메이션
+            roadOffset += speed;
+            if (roadOffset > 80) roadOffset = 0;
+
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = 5;
+            ctx.setLineDash([40, 40]); // 점선
+            ctx.lineDashOffset = -roadOffset;
+
+            // 구분선 1
+            ctx.beginPath();
+            ctx.moveTo(laneWidth, 0);
+            ctx.lineTo(laneWidth, screenH);
+            ctx.stroke();
+
+            // 구분선 2
+            ctx.beginPath();
+            ctx.moveTo(laneWidth * 2, 0);
+            ctx.lineTo(laneWidth * 2, screenH);
+            ctx.stroke();
+            
+            ctx.setLineDash([]); // 점선 초기화
+        }
+
+        function drawMyCar(x, y, w, h) {
+            // 그림자
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.beginPath();
+            ctx.ellipse(x + w/2, y + h - 5, w/2, 10, 0, 0, Math.PI*2);
+            ctx.fill();
+
+            // 차 몸체 (빨간 스포츠카)
+            ctx.fillStyle = "#ff3333"; 
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, 15);
+            ctx.fill();
+
+            // 차 유리창 (파란색)
+            ctx.fillStyle = "#33ccff";
+            ctx.fillRect(x + 5, y + 20, w - 10, 20); // 앞유리
+            ctx.fillRect(x + 5, y + 55, w - 10, 15); // 뒷유리
+
+            // 데코레이션 (줄무늬)
+            ctx.fillStyle = "white";
+            ctx.fillRect(x + w/2 - 5, y, 10, h);
+        }
+
+        function drawWall(x, y, w, h) {
+            // 벽돌색
+            ctx.fillStyle = "#8d6e63";
+            ctx.fillRect(x, y, w, h);
+            
+            // 벽돌 무늬
+            ctx.strokeStyle = "#5d4037";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, w, h);
+            
+            ctx.beginPath();
+            ctx.moveTo(x, y + h/2);
+            ctx.lineTo(x + w, y + h/2);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(x + w/2, y);
+            ctx.lineTo(x + w/2, y + h/2);
+            ctx.stroke();
+        }
+
+        function drawStar(x, y) {
+            let size = 20;
+            ctx.fillStyle = "#ffff00"; // 노란색
+            ctx.strokeStyle = "#ff9800"; // 주황 테두리
+            ctx.lineWidth = 2;
+            
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                ctx.lineTo(Math.cos((18 + i * 72) / 180 * Math.PI) * size + x,
+                           -Math.sin((18 + i * 72) / 180 * Math.PI) * size + y);
+                ctx.lineTo(Math.cos((54 + i * 72) / 180 * Math.PI) * (size / 2) + x,
+                           -Math.sin((54 + i * 72) / 180 * Math.PI) * (size / 2) + y);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        // --- 로직 함수들 ---
+
+        function manageObjects() {
+            // 오브젝트 생성 (랜덤)
+            if (Math.random() < 0.03) { // 3% 확률로 생성
+                let type = Math.random() < 0.4 ? 'wall' : 'star';
+                let lane = Math.floor(Math.random() * 3);
+                
+                // 너무 가까우면 생성 금지
+                let tooClose = false;
+                if(objects.length > 0 && objects[objects.length-1].y < 200) tooClose = true;
+
+                if (!tooClose) {
+                    objects.push({
+                        type: type,
+                        lane: lane,
+                        x: (lane * laneWidth) + (laneWidth / 2),
+                        y: -100,
+                        w: 50,
+                        h: 50
+                    });
+                }
+            }
+
+            // 이동 및 충돌 체크
+            for (let i = 0; i < objects.length; i++) {
+                let obj = objects[i];
+                obj.y += speed;
+
+                // 그리기
+                if (obj.type === 'wall') {
+                    drawWall(obj.x - 25, obj.y, 50, 40); // 벽 그림
+                } else {
+                    drawStar(obj.x, obj.y + 20); // 별 그림
+                }
+
+                // 충돌 체크
+                // 같은 라인이고 + Y 위치가 겹치면
+                if (obj.lane === player.lane &&
+                    obj.y + 40 > player.y &&
+                    obj.y < player.y + player.height) {
+                    
+                    if (obj.type === 'wall') {
+                        gameOver();
+                    } else {
+                        score++;
+                        updateScore();
+                        objects.splice(i, 1);
+                        i--;
+                        
+                        // 5점마다 속도 증가
+                        if(score % 5 === 0) speed += 1;
+                    }
+                }
+
+                // 화면 밖 삭제
+                if (obj.y > screenH) {
+                    objects.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+
+        function updateScore() {
+            document.getElementById('score-board').innerText = "점수: " + score;
+        }
+
+        function gameOver() {
+            isPlaying = false;
+            cancelAnimationFrame(animationId);
+            document.getElementById('menu-screen').style.display = 'flex';
+            document.querySelector('#menu-screen h1').innerText = "게임 오버!";
+            document.getElementById('final-score').innerText = "최종 점수: " + score + "점";
+            document.querySelector('.start-btn').innerText = "다시 하기";
+        }
+
+        // --- 조작 ---
+        function moveLeft() { if(isPlaying && player.lane > 0) player.lane--; }
+        function moveRight() { if(isPlaying && player.lane < 2) player.lane++; }
+
+        // 터치 버튼 연결
+        document.getElementById('btn-left').addEventListener('touchstart', (e) => { e.preventDefault(); moveLeft(); });
+        document.getElementById('btn-right').addEventListener('touchstart', (e) => { e.preventDefault(); moveRight(); });
+        
+        // 클릭 (PC 테스트용)
+        document.getElementById('btn-left').addEventListener('mousedown', moveLeft);
+        document.getElementById('btn-right').addEventListener('mousedown', moveRight);
+
+    </script>
+</body>
+</html>
